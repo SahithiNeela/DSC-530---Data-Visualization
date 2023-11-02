@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="./libs/d3.js"></script>
+    <script src="libs/d3jstopojson.v1.js"></script>
+    <title>MA Map</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-top: 20px;
+        }
+
+        h2 {
+            font-size: 20px;
+        }
+
+        svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        #map-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: calc(100vh - 80px); /* Adjust to fit the content above and below */
+        }
+
+        #tooltip {
+            position: absolute;
+            opacity: 0;
+            top: 0;
+            left: 0;
+            width: auto;
+            padding: 10px;
+            background: white;
+            font-family: sans-serif;
+            font-size: medium;
+            border-radius: 2px;
+            line-height: 1;
+        }
+        
+        path {
+            stroke-width: .5px;
+            stroke: black
+        }
+        
+        path:hover {
+            opacity: .6;
+            stroke: black;
+            stroke-width: 4px;
+        }
+
+        .container{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+
+    </style>
+
+</head>
+
+<body>
+    <div id="tooltip"></div>
+    <div class="container">
+        <h1>Choropleth Maps Assignment</h1>
+        <h3>Sai Sahithi Neela</h3>
+        <div class="fig1">
+            <h2>Population in 1980</h2>
+        </div>
+        <div class="fig2">
+            <h2>Population change between 2010 and 2000 in each town</h2>
+        </div>
+        <div class="fig3">
+            <h2>Colour the map by County</h2>
+        </div>
+
+
+    </div>
+
+    <script>
+        // dimension of the page
+        const window_dims = {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+
+        const svgWidth = window_dims.width/2;
+        const svgHeight = window_dims.width/3;
+        // Append an SVG element to body, then append a path for the boundaries
+
+        // a topojson file containing population of each town in different years
+        const MA_counties = "./data/towns.topojson"
+            // gini index per county
+        const gini_index = "./data/gini_index.csv"
+
+
+
+        // open both files
+        Promise.all([
+            d3.json(MA_counties),
+            d3.csv(gini_index)
+        ]).then(data =>
+        {
+            // topology data
+            const topology_data = data[0];
+            // gini index data
+            const csv_data = data[1];
+    
+            //Map1 function
+            const generateMap1 = (topo_data,containerName,width,height,margin=30)=> {
+                const svg = d3.select(containerName).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+            // if topojson file is imported we need to 
+            // convert topology data to geojson 
+            const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+            
+            //Projections
+            const projections = [
+                d3.geoAzimuthalEqualArea(), //Azimuthal projections project the sphere directly onto a plane.
+                d3.geoAlbersUsa(), // USA conic projection
+                d3.geoAlbers(), // equal-area conic projection
+                d3.geoMercator(), // cylindrical projection
+                d3.geoNaturalEarth1(), // pseudocylindrical projection designed by Tom Patterson
+                d3.geoEqualEarth(), // Equal Earth projection, by Bojan Šavrič et al., 2018.
+                d3.geoConicEqualArea(), //equal-area conic projection
+                d3.geoEquirectangular(), //Cylindrical Projections
+                d3.geoOrthographic()
+            ]
+
+            // Geopath generator
+            const geoPath_generator = d3.geoPath()
+                .projection(projections[3].fitSize([width-margin,height-margin], geojson))
+            
+            //Defining Colours
+            //https://observablehq.com/@d3/working-with-color
+            //https://colorbrewer2.org/#type=diverging&scheme=RdYlBu&n=6
+            const colorInterpolator = d3.interpolateRgbBasis(['#d73027','#fc8d59','#fee090','#e0f3f8','#91bfdb','#4575b4'].reverse())
+                // if the data is scaled using log scale
+            const logScale = d3.scaleLog()
+                .domain(d3.extent(geojson.features, (d) => {
+                    return d['properties']['POP1980']
+                }))
+            // if the data is scaled using linear scale
+            const linearScale = d3.scaleLinear()
+                .domain(d3.extent(geojson.features, (d) => {
+                    return d['properties']['POP1980']
+                }))
+
+            //Tooltip
+            const tooltip = d3.select("#tooltip");
+            
+
+            //Chanelling Marks
+            svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", d => geoPath_generator(d))
+                //.attr("fill", d => colorInterpolator(logScale(d['properties']['POP2010'])))
+                .attr("fill", d => colorInterpolator(linearScale(d['properties']['POP1980'])))
+                .on("mouseenter", (m, d) => {
+                    tooltip.transition()
+                        .duration(200)
+                        .style("opacity", .9)
+                    tooltip.html(
+                        `<strong>${d['properties']['TOWN']}</strong><br>Population in 1980: ${d['properties']['POP1980']}`
+                        )
+                        .style("left", m.clientX + "px")
+                        .style("top", m.clientY + "px");
+                })
+                .on("mousemove", (m, d) => {
+                    tooltip.style("opacity", .9)
+                })
+                .on("mouseout", (m, d) => {
+                    tooltip.transition()
+                        .duration(400)
+                        .style("opacity", 0)
+                })
+
+            }
+            generateMap1(topology_data,".fig1",svgWidth,svgHeight);
+
+
+/*----------------------------------------------------------------------------------------*/
+
+
+            // Function to create Population change map
+            const generateMap2 = (topo_data, containerName, width, height, margin = 30) => {
+                const svg = d3.select(containerName).append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+                // Convert topology data to geojson
+                const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+                geojson.features.forEach(feature => {
+                    feature.properties.POPCH00_10 = feature.properties.POP2010 - feature.properties.POP2000;
+                });
+
+                // Projections
+                const projection = d3.geoMercator()
+                    .fitSize([width - margin, height - margin], geojson);
+
+                // GeoPath generator
+                const geoPath_generator = d3.geoPath()
+                    .projection(projection);
+
+                // Color scaling
+                const colorInterpolator = d3.interpolateRgbBasis(['#d73027', '#fc8d59', '#fee090', '#e0f3f8', '#91bfdb', '#4575b4'].reverse());
+                const linearScale = d3.scaleLinear()
+                    .domain(d3.extent(geojson.features, d => d.properties.POPCH00_10));
+
+                // Tooltip
+                const tooltip = d3.select("#tooltip");
+
+                // Map creation
+                svg.selectAll("path")
+                    .data(geojson.features)
+                    .enter()
+                    .append("path")
+                    .attr("d", d => geoPath_generator(d))
+                    .attr("fill", d => colorInterpolator(linearScale(d.properties.POPCH00_10)))
+                    .on("mouseenter", (m, d) => {
+                        tooltip.transition()
+                            .duration(200)
+                            .style("opacity", 0.9);
+                        tooltip.html(d['properties']['TOWN'])
+                        tooltip.html(`<strong>${d.properties.TOWN}</strong><br>Population Change between 2010 and 2000: ${d.properties.POPCH00_10}`)
+                            .style("left", m.clientX + "px")
+                            .style("top", m.clientY + "px");
+                    })
+                    .on("mousemove", (m, d) => {
+                        tooltip.style("opacity", 0.9);
+                    })
+                    .on("mouseout", () => {
+                        tooltip.transition()
+                            .duration(400)
+                            .style("opacity", 0);
+                    });
+            };
+
+            // Generate the Population Change map
+            generateMap2(topology_data, ".fig2", svgWidth, svgHeight);
+
+
+    /*--------------------------------------------------------------------------------*/
+
+            //Function to generate map3
+            // Create a map to convert 'FIPS_STCO' to '0500000US' format
+           // const fipsToIdMap = {};
+            //gini_data.forEach(d => {
+              //  const fipsCode = d.id.substring(7); // Extract FIPS code from '0500000US25001' format
+                //fipsToIdMap[fipsCode] = d.id;
+            //});
+
+            // Convert TopoJSON properties to match 'id' from CSV data
+            //topo_data.objects.ma.geometries.forEach(d => {
+              //  const fipsCode = d.properties.FIPS_STCO.toString(); // Convert FIPS code to string if necessary
+                //const id = fipsToIdMap[fipsCode];
+                //d.properties.id = id;
+            //});
+            
+
+  
+            const gini_data_2017 = csv_data.filter(item => parseInt(item.year) === 2017);
+ 
+            const generateMap3 = (topo_data, gini_data_2017, containerName, width, height, margin = 30) => {
+            const svg = d3.select(containerName).append("svg")
+            .attr("width", width)
+            .attr("height", height);
+            const geojson = topojson.feature(topo_data, topo_data.objects.ma);
+
+
+            
+            const projections = [
+                d3.geoAzimuthalEqualArea(), //Azimuthal projections project the sphere directly onto a plane.
+                d3.geoAlbersUsa(), // USA conic projection
+                d3.geoAlbers(), // equal-area conic projection
+                d3.geoMercator(), // cylindrical projection
+                d3.geoNaturalEarth1(), // pseudocylindrical projection designed by Tom Patterson
+                d3.geoEqualEarth(), // Equal Earth projection, by Bojan Šavrič et al., 2018.
+                d3.geoConicEqualArea(), //equal-area conic projection
+                d3.geoEquirectangular(), //Cylindrical Projections
+                d3.geoOrthographic()
+            ]
+
+
+            // Geopath generator
+            const geoPath_generator = d3.geoPath()
+                .projection(projections[3].fitSize([width-margin,height-margin], geojson))
+            
+            const countyColorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+            
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+                svg.selectAll("path")
+                .data(geojson.features)
+                .enter()
+                .append("path")
+                .attr("d", d => geoPath_generator(d))
+                .attr("fill", d => {
+                    return countyColorScale(d.properties['TOWN']); // Use County for coloring
+                })
+                .on("mouseenter", (m, d) => {
+                    tooltip.transition()
+                    .duration(200)
+                    .style("opacity", .9);
+                    tooltip.html(`<strong>${d['properties']['TOWN']}</strong>`)
+                    .style("left", m.clientX + "px")
+                    .style("top", m.clientY + "px");
+                })
+
+                .on("mouseout", () => {
+                    tooltip.transition()
+                    .duration(500)
+                    .style("opacity", 0);
+                });
+            };
+
+
+            // Call generateMap3 function with the filtered data
+            generateMap3(topology_data, gini_data_2017, ".fig3", svgWidth, svgHeight);
+
+
+        });
+    </script>
+</body>
+
+</html>
